@@ -1,0 +1,53 @@
+on:
+  schedule:
+    - cron: '0 0 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-stats-svg:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: true
+
+      - name: Setup FVM
+        uses: kuhnroyal/flutter-fvm-config-action@v3
+        id: fvm-config-action
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ steps.fvm-config-action.outputs.FLUTTER_VERSION }}
+          channel: ${{ steps.fvm-config-action.outputs.FLUTTER_CHANNEL }}
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Run stats updater
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: dart run bin/update_svg.dart
+
+      - name: Show git remote (debug)
+        run: |
+          git remote -v
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          echo "Status:"
+          git status -sb
+
+      - name: Commit changes
+        run: |
+          if [[ -n $(git status -s) ]]; then
+            git add .
+            git commit -m "Auto-update GitHub stats SVG"
+            git push
+          else
+            echo "No changes to commit"
+          fi

@@ -1,0 +1,107 @@
+name: Clear all Actions caches
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "yes" to confirm deleting ALL GitHub Actions caches for this repository'
+        required: true
+        default: 'no'
+      dry_run:
+        description: 'If true, only list caches that would be deleted'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: clear-actions-cache
+  cancel-in-progress: false
+
+jobs:
+  clear:
+    name: Clear Actions caches
+    if: ${{ github.event.inputs.confirm == 'yes' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete all caches (or list in dry-run)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          REPO="${GITHUB_REPOSITORY}"
+          API="https://api.github.com/repos/${REPO}/actions/caches"
+          PER_PAGE=100
+          PAGE=1
+          TOTAL=0
+          TOTAL_BYTES=0
+
+          echo "Repository: ${REPO}"
+          echo "Dry run: ${DRY_RUN}"
+
+          while :; do
+            URL="${API}?per_page=${PER_PAGE}&page=${PAGE}"
+            echo "::group::Fetching page ${PAGE}"
+            RESP="$(curl -sS -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+                           -H "Accept: application/vnd.github+json" \
+                           "${URL}")"
+            COUNT="$(jq '.actions_caches | length' <<< "${RESP}")"
+            echo "Found ${COUNT} caches on page ${PAGE}"
+            if [[ "${COUNT}" -eq 0 ]]; then
+              echo "::endgroup::"
+              break
+            fi
+
+            if [[ "${DRY_RUN}" == "true" ]]; then
+              echo "Listing caches (id  key  ref  size_in_bytes):"
+              jq -r '.actions_caches[] | [.id, .key, .ref, .size_in_bytes] | @tsv' <<< "${RESP}"
+              PAGE_BYTES="$(jq '[.actions_caches[].size_in_bytes] | add // 0' <<< "${RESP}")"
+              TOTAL_BYTES=$((TOTAL_BYTES + PAGE_BYTES))
+              TOTAL=$((TOTAL + COUNT))
+              echo "::endgroup::"
+              PAGE=$((PAGE + 1))
+              continue
+            fi
+
+            # Iterate without piping into while (to preserve shell variables)
+            while IFS= read -r item; do
+              ID="$(jq -r '.id' <<< "${item}")"
+              SIZE="$(jq -r '.size_in_bytes' <<< "${item}")"
+              KEY="$(jq -r '.key' <<< "${item}")"
+              REF="$(jq -r '.ref' <<< "${item}")"
+
+              STATUS="$(curl -sS -o /dev/null -w "%{http_code}" -X DELETE \
+                               -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+                               -H "Accept: application/vnd.github+json" \
+                               "${API}/${ID}")"
+              if [[ "${STATUS}" -eq 204 ]]; then
+                echo "Deleted cache id=${ID} key=${KEY} ref=${REF} size=${SIZE}B"
+                TOTAL=$((TOTAL + 1))
+                TOTAL_BYTES=$((TOTAL_BYTES + SIZE))
+              else
+                echo "Failed to delete cache id=${ID} (HTTP ${STATUS})" >&2
+              fi
+            done < <(jq -c '.actions_caches[]' <<< "${RESP}")
+
+            echo "::endgroup::"
+            PAGE=$((PAGE + 1))
+          done
+
+          if [[ "${DRY_RUN}" == "true" ]]; then
+            echo "Dry-run complete. Would delete ${TOTAL} caches totaling ${TOTAL_BYTES} bytes."
+          else
+            echo "Deletion complete. Deleted ${TOTAL} caches totaling ${TOTAL_BYTES} bytes."
+          fi
+
+  refuse_without_confirmation:
+    if: ${{ github.event.inputs.confirm != 'yes' }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "Refusing to run. Re-run this workflow and type 'yes' in the 'confirm' input to proceed." && exit 1

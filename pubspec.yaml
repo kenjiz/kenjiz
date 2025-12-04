@@ -1,0 +1,14 @@
+name: kenjiz
+description: My github profile.
+version: 1.0.0
+
+environment:
+  sdk: ^3.9.2
+
+# Add regular dependencies here.
+dependencies:
+  http: ^1.5.0
+  path: ^1.9.0
+
+dev_dependencies:
+  lints: ^6.0.0
