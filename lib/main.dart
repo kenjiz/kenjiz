@@ -6,32 +6,51 @@ const githubApi = 'https://api.github.com';
 const username = 'kenjiz';
 
 Future<void> main() async {
-  final token = Platform.environment['GITHUB_TOKEN'];
+  final token = Platform.environment['TOKEN'];
   if (token == null) {
-    print('ERROR: Missing GITHUB_TOKEN environment variable.');
+    print('ERROR: Missing TOKEN environment variable.');
     exit(1);
   }
 
   final headers = {
-    'Authorization': 'Bearer $token',
+    'Authorization': 'token $token',
     'Accept': 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
   };
 
-  // FETCH REPOS (with pagination)
+  // FETCH REPOS using Search API (includes private repos with proper auth)
   List repos = [];
   int page = 1;
+  final perPage = 100;
 
   while (true) {
     final res = await http.get(
-      Uri.parse('$githubApi/users/$username/repos?per_page=100&page=$page'),
+      Uri.parse('$githubApi/search/repositories?q=user:$username&per_page=$perPage&page=$page'),
       headers: headers,
     );
 
+    if (res.statusCode != 200) {
+      print('ERROR: API returned ${res.statusCode}');
+      break;
+    }
+
     final data = jsonDecode(res.body);
 
-    if (data is List && data.isNotEmpty) {
-      repos.addAll(data);
-      page++;
+    // Search API returns: { "total_count": X, "items": [...] }
+    if (data is Map && data.containsKey('items')) {
+      final items = data['items'] as List;
+      if (items.isNotEmpty) {
+        repos.addAll(items);
+        page++;
+
+        // Check if we've fetched all repos
+        final totalCount = data['total_count'] as int;
+        if (repos.length >= totalCount) {
+          break;
+        }
+      } else {
+        break;
+      }
     } else {
       break;
     }
@@ -45,8 +64,8 @@ Future<void> main() async {
   int totalDel = 0;
 
   for (final repo in repos) {
-    final repoName = repo['name'];
-    final statsUrl = '$githubApi/repos/$username/$repoName/stats/contributors';
+    final repoFullName = repo['full_name'];
+    final statsUrl = '$githubApi/repos/$repoFullName/stats/contributors';
 
     final statsRes = await http.get(Uri.parse(statsUrl), headers: headers);
 
@@ -57,17 +76,19 @@ Future<void> main() async {
     if (statsRes.statusCode == 200) {
       final stats = jsonDecode(statsRes.body);
 
-      if (stats is List) {
+      if (stats is List && stats.isNotEmpty) {
         final userStats = stats.firstWhere(
-          (s) => s['author']['login'] == username,
+          (s) => s != null && s['author'] != null && s['author']['login'] == username,
           orElse: () => null,
         );
 
-        if (userStats != null) {
+        if (userStats != null && userStats['weeks'] != null) {
           for (final week in userStats['weeks']) {
-            totalCommits += week['c'] as int;
-            totalAdd += week['a'] as int;
-            totalDel += week['d'] as int;
+            if (week != null) {
+              totalCommits += (week['c'] as int? ?? 0);
+              totalAdd += (week['a'] as int? ?? 0);
+              totalDel += (week['d'] as int? ?? 0);
+            }
           }
         }
       }

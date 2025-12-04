@@ -31,8 +31,8 @@ jobs:
 
       - name: Run stats updater
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: dart run bin/update_svg.dart
+          TOKEN: ${{ secrets.TOKEN }}
+        run: dart run lib/main.dart
 
       - name: Show git remote (debug)
         run: |
