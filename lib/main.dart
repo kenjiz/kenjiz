@@ -25,7 +25,7 @@ Future<void> main() async {
 
   while (true) {
     final res = await http.get(
-      Uri.parse('$githubApi/search/repositories?q=user:$username&per_page=$perPage&page=$page'),
+      Uri.parse('$githubApi/user/repos?per_page=$perPage&page=$page'),
       headers: headers,
     );
 
@@ -36,21 +36,9 @@ Future<void> main() async {
 
     final data = jsonDecode(res.body);
 
-    // Search API returns: { "total_count": X, "items": [...] }
-    if (data is Map && data.containsKey('items')) {
-      final items = data['items'] as List;
-      if (items.isNotEmpty) {
-        repos.addAll(items);
-        page++;
-
-        // Check if we've fetched all repos
-        final totalCount = data['total_count'] as int;
-        if (repos.length >= totalCount) {
-          break;
-        }
-      } else {
-        break;
-      }
+    if (data is List && data.isNotEmpty) {
+      repos.addAll(data);
+      page++;
     } else {
       break;
     }
@@ -67,7 +55,13 @@ Future<void> main() async {
     final repoFullName = repo['full_name'];
     final statsUrl = '$githubApi/repos/$repoFullName/stats/contributors';
 
-    final statsRes = await http.get(Uri.parse(statsUrl), headers: headers);
+    final statsRes = await http.get(
+      Uri.parse(statsUrl),
+      headers: {
+        ...headers,
+        'Authorization': 'Bearer $token',
+      },
+    );
 
     if (statsRes.statusCode == 202) {
       continue; // still generating stats
