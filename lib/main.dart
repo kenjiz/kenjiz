@@ -6,11 +6,14 @@ const githubApi = 'https://api.github.com';
 const username = 'kenjiz';
 
 Future<void> main() async {
+  print('Starting GitHub stats update...');
+
   final token = Platform.environment['TOKEN'];
   if (token == null) {
     print('ERROR: Missing TOKEN environment variable.');
     exit(1);
   }
+  print('✓ Token loaded successfully');
 
   final headers = {
     'Authorization': 'token $token',
@@ -19,11 +22,13 @@ Future<void> main() async {
   };
 
   // FETCH REPOS using Search API (includes private repos with proper auth)
+  print('\nFetching repositories...');
   List repos = [];
   int page = 1;
   final perPage = 100;
 
   while (true) {
+    print('Fetching page $page...');
     final res = await http.get(
       Uri.parse('$githubApi/user/repos?per_page=$perPage&page=$page'),
       headers: headers,
@@ -38,6 +43,7 @@ Future<void> main() async {
 
     if (data is List && data.isNotEmpty) {
       repos.addAll(data);
+      print('✓ Fetched ${data.length} repositories (total: ${repos.length})');
       page++;
     } else {
       break;
@@ -45,14 +51,19 @@ Future<void> main() async {
   }
 
   final repoCount = repos.length;
+  print('✓ Total repositories found: $repoCount\n');
 
   // FETCH STATS FOR COMMITS / ADDITIONS / DELETIONS
+  print('Fetching commit statistics...');
   int totalCommits = 0;
   int totalAdd = 0;
   int totalDel = 0;
 
+  int processedRepos = 0;
   for (final repo in repos) {
     final repoFullName = repo['full_name'];
+    processedRepos++;
+    print('[$processedRepos/$repoCount] Processing: $repoFullName');
     final statsUrl = '$githubApi/repos/$repoFullName/stats/contributors';
 
     final statsRes = await http.get(
@@ -64,10 +75,12 @@ Future<void> main() async {
     );
 
     if (statsRes.statusCode == 202) {
+      print('  ⏳ Stats still generating, skipping...');
       continue; // still generating stats
     }
 
     if (statsRes.statusCode == 200) {
+      print('  ✓ Stats fetched successfully');
       final stats = jsonDecode(statsRes.body);
 
       if (stats is List && stats.isNotEmpty) {
@@ -77,6 +90,7 @@ Future<void> main() async {
         );
 
         if (userStats != null && userStats['weeks'] != null) {
+          print('  → Found user contributions');
           for (final week in userStats['weeks']) {
             if (week != null) {
               totalCommits += (week['c'] as int? ?? 0);
@@ -90,8 +104,15 @@ Future<void> main() async {
   }
 
   final totalLoc = totalAdd + totalDel;
+  print('\n📊 Statistics Summary:');
+  print('   Repositories: $repoCount');
+  print('   Total Commits: $totalCommits');
+  print('   Lines Added: +$totalAdd');
+  print('   Lines Deleted: -$totalDel');
+  print('   Total LOC: $totalLoc\n');
 
   // UPDATE EXISTING SVG FILES
+  print('Updating SVG files...');
   await updateSvg(
     'light_mode.svg',
     repoCount,
@@ -110,7 +131,7 @@ Future<void> main() async {
     totalDel,
   );
 
-  print('✔ Updated light_mode.svg & dark_mode.svg successfully');
+  print('\n✅ All SVG files updated successfully!');
 }
 
 // FUNCTION: Update SVG content by ID
@@ -129,6 +150,7 @@ Future<void> updateSvg(
     return;
   }
 
+  print('Processing $path...');
   String svg = await file.readAsString();
 
   // Format numbers with commas
